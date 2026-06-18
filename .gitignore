@@ -1,0 +1,16 @@
+data/
+*.csv
+*.parquet
+*.zip
+
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.venv/
+ENV/
+db.sqlite3
+migrations/
+.env
+*.log
