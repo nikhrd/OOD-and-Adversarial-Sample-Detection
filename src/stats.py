@@ -1,17 +1,40 @@
 import torch
-import numpy as np
+from tqdm import tqdm
 import config
 from src.hooks import captured_features
 
+
 def get_class_stats(dataloader, model, layers):
+    """
+    Computes class-wise feature means and precision matrices for each
+    hooked layer using the training dataset.
+
+    Returns:
+        stats_per_layer: List containing:
+            {
+                "means": Tensor[num_classes, feature_dim],
+                "precision": Tensor[feature_dim, feature_dim]
+            }
+    """
+
     all_features = {i: [] for i in range(len(layers))}
     all_labels = []
 
-    with torch.no_grad():
-        for inputs, labels in dataloader:
-            inputs = inputs.to(config.DEVICE)
-            captured_features.clear()
+    model.eval()
 
+    print("\n[Step 3.1] Extracting Deep Features...\n")
+
+    with torch.no_grad():
+        for inputs, labels in tqdm(
+                dataloader,
+                desc="Extracting Features",
+                unit="batch",
+                colour="cyan",
+                dynamic_ncols=True):
+
+            inputs = inputs.to(config.DEVICE)
+
+            captured_features.clear()
             _ = model(inputs)
 
             for i, feat in enumerate(captured_features):
@@ -23,26 +46,52 @@ def get_class_stats(dataloader, model, layers):
 
     stats_per_layer = []
 
-    for i in range(len(layers)):
+    print("\n[Step 3.2] Computing Mahalanobis Statistics...\n")
+
+    for i in tqdm(
+            range(len(layers)),
+            desc="Processing Layers",
+            unit="layer",
+            colour="green",
+            dynamic_ncols=True):
+
         layer_feats = torch.cat(all_features[i])
 
         means = []
+
+        # Compute class-wise mean vectors
         for c in range(config.NUM_CLASSES):
             mask = (labels == c)
-            means.append(layer_feats[mask].mean(0))
+            means.append(layer_feats[mask].mean(dim=0))
 
         means = torch.stack(means)
 
+        # Zero-center features
         zero_mean = layer_feats.clone()
+
         for c in range(config.NUM_CLASSES):
             zero_mean[labels == c] -= means[c]
 
-        cov = torch.mm(zero_mean.t(), zero_mean) / len(layer_feats)
-        precision = torch.linalg.inv(cov + 1e-6 * torch.eye(cov.shape[0]))
+        # Covariance Matrix
+        covariance = (
+            torch.mm(zero_mean.t(), zero_mean)
+            / len(layer_feats)
+        )
+
+        # Precision Matrix
+        precision = torch.linalg.inv(
+            covariance +
+            1e-6 * torch.eye(
+                covariance.shape[0],
+                device=covariance.device
+            )
+        )
 
         stats_per_layer.append({
             "means": means,
             "precision": precision
         })
+
+    print("\n✓ Mahalanobis Statistics Successfully Computed!\n")
 
     return stats_per_layer
