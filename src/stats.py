@@ -78,14 +78,9 @@ def get_class_stats(dataloader, model, layers):
             / len(layer_feats)
         )
 
-        # Precision Matrix
-        precision = torch.linalg.inv(
-            covariance +
-            1e-6 * torch.eye(
-                covariance.shape[0],
-                device=covariance.device
-            )
-        )
+        # Precision Matrix (using pseudo-inverse with regularization for guaranteed stability)
+        reg_eye = 1e-4 * torch.eye(covariance.shape[0], device=covariance.device)
+        precision = torch.linalg.pinv(covariance + reg_eye)
 
         stats_per_layer.append({
             "means": means,

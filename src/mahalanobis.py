@@ -43,13 +43,15 @@ def calculate_layer_scores(inputs, model, stats):
         means = stats[i]["means"].to(config.DEVICE)
         precision = stats[i]["precision"].to(config.DEVICE)
 
-        batch_scores = []
+        # Vectorized Mahalanobis distance across batch:
+        # feat: (B, D), means: (C, D), precision: (D, D)
+        diff = feat.unsqueeze(1) - means.unsqueeze(0)  # (B, C, D)
+        intermediate = torch.matmul(diff, precision)   # (B, C, D)
+        dist = torch.sum(intermediate * diff, dim=-1)  # (B, C)
+        dist = torch.clamp(dist, min=0.0)              # prevent numerical negatives
+        min_dist, _ = torch.min(dist, dim=1)           # (B,)
 
-        for j in range(feat.size(0)):
-            diff = feat[j] - means
-            dist = torch.matmul(torch.matmul(diff, precision), diff.t()).diag()
-            batch_scores.append(-torch.min(dist).item())
+        scores = -min_dist.detach().cpu().numpy()
+        layer_scores.append(scores)
 
-        layer_scores.append(batch_scores)
-
-    return np.array(layer_scores).T
+    return np.column_stack(layer_scores)
