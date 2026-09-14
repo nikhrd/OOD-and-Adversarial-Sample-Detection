@@ -40,11 +40,15 @@ def load_system():
     with open(config.ARTIFACT_PATH, "rb") as file:
         artifacts = pickle.load(file)
 
+    judge = artifacts["judge"]
+    if not hasattr(judge, "multi_class"):
+        setattr(judge, "multi_class", "auto")
+
     return (
         model,
         hook_handles,
         artifacts["stats"],
-        artifacts["judge"],
+        judge,
         artifacts["faiss_index"],
         artifacts["faiss_threshold"]
     )

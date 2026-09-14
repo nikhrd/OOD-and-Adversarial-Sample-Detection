@@ -76,12 +76,14 @@ Validated in-distribution data processed through encryption module to protect se
 - **Secure pipeline**: Encrypts validated inputs post-detection
 
 ### Usage
+
 ```bash
 # 1. Install dependencies
 pip install -r requirements.txt
 
-# 2. Extract features + compute statistics
-python train_stats.py --dataset cifar10 --model resnet18
+# 2. Train / Calibrate Pipeline on GPU (Fine-tunes ResNet-18, builds FAISS index & Mahalanobis stats)
+python train_on_gpu.py
 
-# 3. Run detection on new inputs
-python detect.py --input path/to/image.jpg
+# 3. Launch the Streamlit Web Application
+streamlit run app.py
+```
