@@ -137,6 +137,26 @@ if uploaded_file is not None:
 
 
     # --------------------------------------------------
+    # Capture RAW (unperturbed) top-layer feature for FAISS.
+    #
+    # This must be taken BEFORE the Mahalanobis perturbation step
+    # below, and kept separate from the shared `captured_features`
+    # list, because `calculate_layer_scores` re-runs the model on
+    # the *perturbed* input and overwrites that list. The FAISS
+    # index (and its threshold) were built in train_on_gpu.py from
+    # raw, unperturbed clean embeddings, so the query-time feature
+    # used for disambiguation has to come from the same, unperturbed
+    # feature space or every non-clean sample drifts "far" from the
+    # index and gets misclassified as OOD instead of Adversarial.
+    # --------------------------------------------------
+
+    with torch.no_grad():
+        captured_features.clear()
+        _ = model(input_tensor)
+        raw_top_layer_feature = captured_features[-1].clone()
+
+
+    # --------------------------------------------------
     # Stage 1: Mahalanobis Analysis
     # --------------------------------------------------
 
@@ -223,8 +243,8 @@ if uploaded_file is not None:
 
         else:
 
-            # Ensure features are available
-            if not captured_features:
+            # Ensure the raw feature was captured successfully
+            if raw_top_layer_feature is None:
 
                 st.error(
                     "Feature extraction failed. "
@@ -234,19 +254,23 @@ if uploaded_file is not None:
                 st.stop()
 
 
-            # Get final ResNet feature representation
-            top_layer_feature = captured_features[-1]
-
-
             # --------------------------------------------------
             # Stage 3: FAISS Disambiguation
+            # (uses the RAW, unperturbed feature captured above,
+            # not the perturbed one from Stage 1)
             # --------------------------------------------------
 
             category, faiss_distance = disambiguate_sample(
-                top_layer_feature,
+                raw_top_layer_feature,
                 faiss_index,
                 faiss_threshold
             )
+            print("Prediction:", prediction)
+            print("Judge probabilities:", probs)
+            print("FAISS category:", category)
+            print("FAISS distance:", faiss_distance)
+            print("FAISS threshold:", faiss_threshold)
+            print("Distance / threshold:", faiss_distance / faiss_threshold)
 
 
             confidence = probs[0] * 100

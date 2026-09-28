@@ -6,7 +6,7 @@ import config
 
 def load_model(weights_path=None):
     if weights_path is None:
-        weights_path = getattr(config, "MODEL_PATH", "artifacts/resnet18_cifar10.pth")
+        weights_path = getattr(config, "MODEL_PATH", "artifacts/resnet18_nih_chestxray.pth")
 
     # If fine-tuned checkpoint exists, load without ImageNet weights
     has_checkpoint = os.path.exists(weights_path)

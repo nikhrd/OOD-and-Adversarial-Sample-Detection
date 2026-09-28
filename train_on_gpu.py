@@ -2,7 +2,7 @@
 train_on_gpu.py
 ================
 Run this script on a GPU-enabled laptop (e.g., RTX 2050 Mobile) to:
-1. Fine-tune ResNet-18 on CIFAR-10 (saving artifacts/resnet18_cifar10.pth)
+1. Fine-tune ResNet-18 on NIH ChestXray14 (saving artifacts/resnet18_nih_chestxray.pth)
 2. Extract multi-layer Mahalanobis statistics (class means & precision matrices)
 3. Build a calibrated FAISS index for OOD vs. Adversarial disambiguation
 4. Generate adversarial samples (FGSM) and train the detection judge
@@ -16,20 +16,23 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torchvision import datasets, transforms, models
+from torchvision import transforms, models
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 try:
     import faiss
 except ImportError:
     raise ImportError(
         "FAISS is not installed. Please run: pip install faiss-cpu (or pip install -r requirements.txt)"
     )
+import config
 from src.hooks import register_hooks, captured_features
 from src.stats import get_class_stats
 from src.mahalanobis import get_mahalanobis_score, calculate_layer_scores
 from src.adversarial import generate_adversarial_image
 from src.ensemble import train_judge
 from src.security import get_or_create_key
+from src.nih_dataset import NIHChestXrayDataset
 
 
 def parse_args():
@@ -46,7 +49,7 @@ def check_environment():
     print("\n" + "=" * 60)
     print(" 🚀 HARDWARE ACCELERATION CHECK")
     print("=" * 60)
-    
+
     if torch.cuda.is_available():
         gpu_name = torch.cuda.get_device_name(0)
         vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
@@ -57,13 +60,14 @@ def check_environment():
     else:
         print(" [!] CUDA NOT DETECTED. Running on CPU fallback.")
         print("     Tip: If you have an NVIDIA GPU, ensure NVIDIA drivers and CUDA-enabled PyTorch are installed.")
-    
+
     print(f" [✓] Selected Device: {config.DEVICE}")
+    print(f" [✓] Classes ({config.NUM_CLASSES}): {config.CLASSES}")
     print("=" * 60 + "\n")
 
 
-def get_cifar_dataloaders(batch_size):
-    """Prepares augmented training loader and standard test loader."""
+def get_nih_dataloaders(batch_size):
+    """Prepares augmented training loader and standard test loader for NIH ChestXray14."""
     train_transform = transforms.Compose([
         transforms.Resize((config.IMAGE_SIZE, config.IMAGE_SIZE)),
         transforms.RandomHorizontalFlip(),
@@ -77,8 +81,8 @@ def get_cifar_dataloaders(batch_size):
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
-    train_dataset = datasets.CIFAR10(root=config.DATA_PATH, train=True, download=True, transform=train_transform)
-    test_dataset = datasets.CIFAR10(root=config.DATA_PATH, train=False, download=True, transform=test_transform)
+    train_dataset = NIHChestXrayDataset(split="train", transform=train_transform)
+    test_dataset = NIHChestXrayDataset(split="test", transform=test_transform)
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, pin_memory=torch.cuda.is_available())
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, pin_memory=torch.cuda.is_available())
@@ -87,9 +91,9 @@ def get_cifar_dataloaders(batch_size):
 
 
 def finetune_resnet(train_loader, test_loader, epochs, lr):
-    """Fine-tunes ResNet-18 on CIFAR-10 with an adapted 10-class head."""
-    print(f"\n[Step 1/5] Fine-tuning ResNet-18 on CIFAR-10 ({epochs} epochs)...")
-    
+    """Fine-tunes ResNet-18 on NIH ChestXray14 with an adapted classification head."""
+    print(f"\n[Step 1/5] Fine-tuning ResNet-18 on NIH ChestXray14 ({epochs} epochs)...")
+
     model = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
     model.fc = nn.Linear(model.fc.in_features, config.NUM_CLASSES)
     model.to(config.DEVICE)
@@ -140,7 +144,7 @@ def finetune_resnet(train_loader, test_loader, epochs, lr):
             print(f"    [*] Checkpoint saved to {config.MODEL_PATH} (Acc: {best_acc:.2f}%)")
 
     print(f"\n✓ Fine-tuning completed! Best Test Accuracy: {best_acc:.2f}%\n")
-    
+
     # Reload best weights
     model.load_state_dict(torch.load(config.MODEL_PATH, map_location=config.DEVICE))
     model.eval()
@@ -237,9 +241,9 @@ def main():
     os.makedirs(config.DATA_PATH, exist_ok=True)
 
     check_environment()
-    train_loader, test_loader = get_cifar_dataloaders(args.batch_size)
+    train_loader, test_loader = get_nih_dataloaders(args.batch_size)
 
-    # 1. Fine-tune ResNet-18 on CIFAR-10
+    # 1. Fine-tune ResNet-18 on NIH ChestXray14
     model = finetune_resnet(train_loader, test_loader, epochs=args.epochs, lr=args.lr)
 
     # 2. Extract multi-layer stats
@@ -269,7 +273,7 @@ def main():
     print(" 🎉 TRAINING & ARTIFACT GENERATION COMPLETED SUCCESSFULLY!")
     print("=" * 60)
     print(" Generated Files in ./artifacts/:")
-    print(f"  1. {config.MODEL_PATH}          (Trained 10-class ResNet-18 weights)")
+    print(f"  1. {config.MODEL_PATH}          (Trained ResNet-18 weights)")
     print(f"  2. {config.ARTIFACT_PATH}       (Detector stats, Judge, FAISS index)")
     print(f"  3. {config.SECRET_KEY_PATH}             (AES Fernet Encryption Key)")
     print("=" * 60)
