@@ -45,4 +45,4 @@ def _build_class_list(csv_path):
 
 CLASSES = _build_class_list(CSV_PATH)
 CLASS_TO_IDX = {name: idx for idx, name in enumerate(CLASSES)}
-NUM_CLASSES = len(CLASSES) if CLASSES else 10  # fallback avoids crashing on import
+NUM_CLASSES = len(CLASSES) if CLASSES else 15  # fallback matching checkpoint size
