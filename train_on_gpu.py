@@ -33,6 +33,7 @@ from src.adversarial import generate_adversarial_image
 from src.ensemble import train_judge
 from src.security import get_or_create_key
 from src.nih_dataset import NIHChestXrayDataset
+from src.faiss_index import build_faiss_index
 
 
 def parse_args():
@@ -151,50 +152,7 @@ def finetune_resnet(train_loader, test_loader, epochs, lr):
     return model
 
 
-def build_calibrated_faiss(model, train_loader, test_loader, max_samples=5000):
-    """
-    Extracts top-layer clean representations and creates an L2 FAISS index.
-    Calibrates threshold using held-out test data to eliminate self-matching distance bias.
-    """
-    print("\n[Step 3/5] Building FAISS Index & Calibrating Disambiguation Threshold...")
-    model.eval()
-    train_embeddings = []
 
-    with torch.no_grad():
-        for inputs, _ in tqdm(train_loader, desc="Extracting Train Embeddings", colour="cyan"):
-            inputs = inputs.to(config.DEVICE)
-            captured_features.clear()
-            _ = model(inputs)
-            train_embeddings.append(captured_features[-1].cpu().numpy())
-
-            if len(train_embeddings) * config.BATCH_SIZE >= max_samples:
-                break
-
-    train_embeddings = np.vstack(train_embeddings).astype("float32")
-    dimension = train_embeddings.shape[1]
-    index = faiss.IndexFlatL2(dimension)
-    index.add(train_embeddings)
-    print(f" [✓] FAISS FlatL2 index built with {index.ntotal} clean samples (dim={dimension}).")
-
-    # Threshold calibration on clean test samples (no self-matching bias)
-    test_embeddings = []
-    with torch.no_grad():
-        for inputs, _ in test_loader:
-            inputs = inputs.to(config.DEVICE)
-            captured_features.clear()
-            _ = model(inputs)
-            test_embeddings.append(captured_features[-1].cpu().numpy())
-            if len(test_embeddings) * config.BATCH_SIZE >= 1000:
-                break
-
-    test_embeddings = np.vstack(test_embeddings).astype("float32")
-    distances, _ = index.search(test_embeddings, k=5)
-    mean_dist = float(np.mean(distances))
-    std_dist = float(np.std(distances))
-    threshold = mean_dist + 2.0 * std_dist
-
-    print(f" [✓] Calibrated Disambiguation Threshold: {threshold:.4f} (Mean: {mean_dist:.4f}, Std: {std_dist:.4f})")
-    return index, threshold
 
 
 def train_detector_judge(model, loader, stats, target_samples=3000):
@@ -252,7 +210,8 @@ def main():
     stats = get_class_stats(train_loader, model, layer_handles)
 
     # 3. FAISS index & calibrated threshold
-    faiss_index, faiss_threshold = build_calibrated_faiss(model, train_loader, test_loader, max_samples=args.faiss_samples)
+    print("\n[Step 3/5] Building FAISS Index & Calibrating Disambiguation Threshold...")
+    faiss_index, faiss_threshold = build_faiss_index(model, train_loader, num_samples=args.faiss_samples)
 
     # 4. Train Judge
     judge = train_detector_judge(model, train_loader, stats, target_samples=args.adv_samples)

@@ -152,7 +152,9 @@ def build_faiss_index(model, dataloader, num_samples=1000):
 
     mean_dist = float(np.mean(loo_distances))
     std_dist = float(np.std(loo_distances))
-    threshold = mean_dist + 2.0 * std_dist
+    
+    # Use 99.5th percentile for heavy-tailed distance distributions
+    threshold = float(np.percentile(loo_distances, 99.5))
 
     print("\nFAISS calibration complete")
     print(f"Index size: {index.ntotal}")
@@ -160,7 +162,7 @@ def build_faiss_index(model, dataloader, num_samples=1000):
     print(f"LOO neighbor distances: {len(loo_distances)}")
     print(f"Mean distance: {mean_dist:.4f}")
     print(f"Std distance: {std_dist:.4f}")
-    print(f"Distance threshold: {threshold:.4f}")
+    print(f"Distance threshold (99.5th %ile): {threshold:.4f}")
 
     return index, threshold
 
